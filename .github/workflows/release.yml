@@ -19,9 +19,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build Release
+      - name: Install create-dmg
         run: |
-          cargo build --release
+          brew install create-dmg
+
+      - name: Build Release
+        run: cargo build --release
 
       - name: Create DMG
         run: |
