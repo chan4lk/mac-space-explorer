@@ -3,17 +3,19 @@ mod ui;
 
 use core::scanner::{FileEntry, ScanProgress, scan_directory};
 use iced::{
-    widget::{button, canvas::Canvas, column, container, progress_bar, row, text, text_input},
-    Application, Command, Element, Length, Settings, Subscription, Theme, time,
+    widget::{button, canvas, container, Column, progress_bar, text},
+    Application, Command, Element, Length, Rectangle, Settings, Theme, Subscription,
+    event, mouse, time,
 };
+use iced::widget::canvas::Event;
 use humansize::{format_size, BINARY};
+use native_dialog::{FileDialog, MessageDialog, MessageType};
 use std::{path::PathBuf, time::Duration};
-use ui::heat_map::HeatMap;
+use ui::treemap::TreeMap;
 
 pub struct SpaceExplorer {
-    path_input: String,
     root_path: PathBuf,
-    heat_map: HeatMap,
+    treemap: TreeMap,
     total_size: u64,
     filter_age: Option<u64>,
     filter_size: Option<u64>,
@@ -24,15 +26,19 @@ pub struct SpaceExplorer {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    PathInputChanged(String),
+    SelectFolder,
+    FolderSelected(Option<PathBuf>),
     Scan,
-    Select(PathBuf),
+    ScanProgress(ScanProgress),
+    ScanComplete(u64),
+    Select(Option<PathBuf>),
+    DrillDown,
+    DrillUp,
     OpenInFinder,
     Delete,
-    FilterByAge(u64),
-    FilterBySize(u64),
-    Refresh,
+    DeleteConfirmed,
     Tick,
+    CanvasEvent(Event),
 }
 
 impl Application for SpaceExplorer {
@@ -45,9 +51,8 @@ impl Application for SpaceExplorer {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
         (
             SpaceExplorer {
-                path_input: home.to_string_lossy().into_owned(),
-                root_path: home,
-                heat_map: HeatMap::new(),
+                root_path: home.clone(),
+                treemap: TreeMap::new(home),
                 total_size: 0,
                 filter_age: None,
                 filter_size: None,
@@ -60,7 +65,7 @@ impl Application for SpaceExplorer {
     }
 
     fn title(&self) -> String {
-        String::from("Mac Space Explorer")
+        format!("Mac Space Explorer - {}", self.root_path.display())
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -73,69 +78,105 @@ impl Application for SpaceExplorer {
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
-            Message::PathInputChanged(path) => {
-                self.path_input = path;
+            Message::SelectFolder => {
+                if let Ok(Some(path)) = FileDialog::new()
+                    .set_location(&self.root_path)
+                    .show_open_single_dir()
+                {
+                    self.root_path = path;
+                    self.treemap = TreeMap::new(self.root_path.clone());
+                    return Command::perform(async {}, |_| Message::Scan);
+                }
+                Command::none()
             }
+            Message::FolderSelected(_) => Command::none(),
             Message::Scan => {
-                self.root_path = PathBuf::from(&self.path_input);
                 if self.root_path.exists() {
                     self.scanning = true;
                     self.scan_progress = Some(ScanProgress::default());
                     let mut progress = ScanProgress::default();
                     let entries = scan_directory(&self.root_path, &mut progress);
-                    self.heat_map.entries = entries;
+                    self.treemap.entries = entries;
+                    self.treemap.update_layout(Rectangle {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 800.0,  // Default width
+                        height: 600.0, // Default height
+                    });
                     self.total_size = progress.total_size;
                     self.scanning = false;
                 }
+                Command::none()
             }
+            Message::ScanProgress(_) => Command::none(),
+            Message::ScanComplete(_) => Command::none(),
             Message::Select(path) => {
-                self.selected_path = Some(path);
+                self.selected_path = path;
+                Command::none()
             }
             Message::OpenInFinder => {
                 if let Some(path) = &self.selected_path {
                     let _ = open::that(path);
                 }
+                Command::none()
             }
             Message::Delete => {
                 if let Some(path) = &self.selected_path {
-                    if path.is_dir() {
-                        let _ = std::fs::remove_dir_all(path);
-                    } else {
-                        let _ = std::fs::remove_file(path);
+                    let confirm = MessageDialog::new()
+                        .set_title("Confirm Delete")
+                        .set_text(&format!("Are you sure you want to delete {}?", path.display()))
+                        .set_type(MessageType::Warning)
+                        .show_confirm()
+                        .unwrap_or(false);
+
+                    if confirm {
+                        if path.is_dir() {
+                            let _ = std::fs::remove_dir_all(path);
+                        } else {
+                            let _ = std::fs::remove_file(path);
+                        }
+                        self.selected_path = None;
+                        return Command::perform(async {}, |_| Message::Scan);
                     }
-                    self.selected_path = None;
                 }
+                Command::none()
             }
-            Message::FilterByAge(days) => {
-                self.filter_age = Some(days);
+            Message::DeleteConfirmed => Command::none(),
+            Message::DrillDown => {
+                if let Some(path) = &self.selected_path {
+                    if path.is_dir() {
+                        self.root_path = path.clone();
+                        self.treemap = TreeMap::new(self.root_path.clone());
+                        return Command::perform(async {}, |_| Message::Scan);
+                    }
+                }
+                Command::none()
             }
-            Message::FilterBySize(size) => {
-                self.filter_size = Some(size);
+            Message::DrillUp => {
+                if let Some(parent) = self.root_path.parent() {
+                    self.root_path = parent.to_path_buf();
+                    self.treemap = TreeMap::new(self.root_path.clone());
+                    return Command::perform(async {}, |_| Message::Scan);
+                }
+                Command::none()
             }
-            Message::Refresh => {
-                // Implement refresh logic
-            }
-            Message::Tick => {
-                // Update progress if needed
-            }
+            Message::Tick => Command::none(),
+            Message::CanvasEvent(_) => Command::none(),
         }
-        Command::none()
     }
 
     fn view(&self) -> Element<Message> {
-        let path_input = text_input("Enter path to scan", &self.path_input)
-            .on_input(Message::PathInputChanged)
-            .padding(10);
-
-        let controls = row![
-            path_input,
-            button("Scan").on_press(Message::Scan),
-            button(if self.selected_path.is_some() { "Open in Finder" } else { "Select to Open" })
-                .on_press(Message::OpenInFinder),
-            button(if self.selected_path.is_some() { "Delete" } else { "Select to Delete" })
-                .on_press(Message::Delete),
-        ]
-        .spacing(10);
+        let controls = Column::new()
+            .push(button("Select Folder").on_press(Message::SelectFolder))
+            .push(button("Scan").on_press(Message::Scan))
+            .push(button("↑ Up").on_press(Message::DrillUp))
+            .push(button(if self.selected_path.is_some() { "Open in Finder" } else { "Select to Open" })
+                .on_press(Message::OpenInFinder))
+            .push(button(if self.selected_path.is_some() { "Delete" } else { "Select to Delete" })
+                .on_press(Message::Delete))
+            .push(button(if self.selected_path.is_some() { "Drill Down" } else { "Select to Drill" })
+                .on_press(Message::DrillDown))
+            .spacing(10);
 
         let progress = if let Some(progress) = &self.scan_progress {
             let progress_value = if progress.total_files > 0 {
@@ -144,32 +185,30 @@ impl Application for SpaceExplorer {
                 0.0
             };
 
-            column![
-                progress_bar(0.0..=1.0, progress_value),
-                text(format!(
+            Column::new()
+                .push(progress_bar(0.0..=1.0, progress_value))
+                .push(text(format!(
                     "Scanning: {}/{} files",
                     progress.scanned_files, progress.total_files
-                )),
-            ]
-            .spacing(10)
+                )))
+                .spacing(10)
         } else {
-            column![].spacing(10)
+            Column::new().spacing(10)
         };
 
-        let heat_map = Canvas::new(&self.heat_map)
+        let treemap = canvas::Canvas::new(&self.treemap)
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let content = column![
-            controls,
-            progress,
-            text(format!(
+        let content = Column::new()
+            .push(controls)
+            .push(progress)
+            .push(text(format!(
                 "Total Size: {}",
                 format_size(self.total_size, BINARY)
-            )),
-            heat_map,
-        ]
-        .spacing(20);
+            )))
+            .push(treemap)
+            .spacing(20);
 
         container(content)
             .width(Length::Fill)

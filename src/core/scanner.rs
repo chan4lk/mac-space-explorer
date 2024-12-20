@@ -10,6 +10,7 @@ pub struct FileEntry {
     pub is_dir: bool,
 }
 
+#[derive(Debug, Clone)]
 pub struct ScanProgress {
     pub total_files: usize,
     pub scanned_files: usize,
