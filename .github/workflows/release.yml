@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  create-release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Release
+        run: |
+          cd mac-space-explorer
+          cargo build --release
+
+      - name: Create DMG
+        run: |
+          cd mac-space-explorer
+          mkdir -p target/dmg
+          cp target/release/mac-space-explorer target/dmg/
+          create-dmg \
+            --volname "Mac Space Explorer" \
+            --volicon "resources/app.icns" \
+            --window-pos 200 120 \
+            --window-size 600 300 \
+            --icon-size 100 \
+            --icon "Mac Space Explorer" 200 150 \
+            --hide-extension "Mac Space Explorer" \
+            --app-drop-link 400 150 \
+            "target/Mac Space Explorer.dmg" \
+            "target/dmg/"
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            mac-space-explorer/target/Mac Space Explorer.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
