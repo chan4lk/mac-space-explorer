@@ -32,13 +32,9 @@ jobs:
           cp target/release/mac-space-explorer target/dmg/
           create-dmg \
             --volname "Mac Space Explorer" \
-            --volicon "resources/app.icns" \
-            --window-pos 200 120 \
-            --window-size 600 300 \
-            --icon-size 100 \
-            --icon "Mac Space Explorer" 200 150 \
-            --hide-extension "Mac Space Explorer" \
-            --app-drop-link 400 150 \
+            --no-internet-enable \
+            --window-size 500 300 \
+            --app-drop-link 380 150 \
             "target/Mac Space Explorer.dmg" \
             "target/dmg/"
 
