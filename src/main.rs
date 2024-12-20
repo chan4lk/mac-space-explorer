@@ -34,6 +34,7 @@ pub enum Message {
     DrillDown,
     DrillUp,
     OpenInFinder,
+    OpenInExplorer,
     Delete,
     DeleteConfirmed(PathBuf),
     Tick,
@@ -187,6 +188,10 @@ impl Application for SpaceExplorer {
                 }
                 Command::none()
             }
+            Message::OpenInExplorer => {
+                self.open_in_explorer();
+                Command::none()
+            }
             Message::Delete => {
                 // Get the path and release the lock immediately
                 let path_to_delete = SELECTED_PATH.lock()
@@ -195,18 +200,22 @@ impl Application for SpaceExplorer {
 
                 if let Some(path) = path_to_delete {
                     if let Ok(true) = MessageDialog::new()
-                        .set_title("Confirm Delete")
-                        .set_text(&format!("Are you sure you want to delete {}?", path.display()))
+                        .set_title("Move to Trash")
+                        .set_text(&format!("Are you sure you want to move {} to trash?", path.display()))
                         .set_type(MessageType::Warning)
                         .show_confirm()
                     {
-                        if path.is_dir() {
-                            let _ = std::fs::remove_dir_all(&path);
+                        if let Err(e) = trash::delete(&path) {
+                            MessageDialog::new()
+                                .set_title("Error")
+                                .set_text(&format!("Failed to move to trash: {}", e))
+                                .set_type(MessageType::Error)
+                                .show_alert()
+                                .unwrap_or(());
                         } else {
-                            let _ = std::fs::remove_file(&path);
+                            *SELECTED_PATH.lock().unwrap() = None;
+                            return Command::perform(async {}, |_| Message::Scan);
                         }
-                        *SELECTED_PATH.lock().unwrap() = None;
-                        return Command::perform(async {}, |_| Message::Scan);
                     }
                 }
                 Command::none()
@@ -247,9 +256,14 @@ impl Application for SpaceExplorer {
                     button("Drill Down").style(theme::Button::Secondary)
                 },
                 if selected.is_some() {
-                    button("Open in Finder").on_press(Message::OpenInFinder)
+                    button("Open").on_press(Message::OpenInFinder)
                 } else {
-                    button("Open in Finder").style(theme::Button::Secondary)
+                    button("Open").style(theme::Button::Secondary)
+                },
+                if selected.is_some() {
+                    button("Explore").on_press(Message::OpenInExplorer)
+                } else {
+                    button("Explore").style(theme::Button::Secondary)
                 },
                 if selected.is_some() {
                     button("Delete")
@@ -320,16 +334,19 @@ impl Application for SpaceExplorer {
                                 .width(Length::Fill)
                                 .align_items(iced::Alignment::Center);
 
+                                let container = container(row)
+                                    .padding(5)
+                                    .width(Length::Fill);
+
                                 if is_selected {
-                                    container(row)
+                                    container
                                         .style(theme::Container::Custom(Box::new(SelectedStyle)))
-                                        .padding(5)
-                                        .width(Length::Fill)
                                         .into()
                                 } else {
-                                    container(row)
-                                        .padding(5)
-                                        .width(Length::Fill)
+                                    let entry_path = entry.path.clone();
+                                    button(container)
+                                        .on_press(Message::Select(Some(entry_path)))
+                                        .style(theme::Button::Text)
                                         .into()
                                 }
                             })
@@ -384,6 +401,27 @@ impl Application for SpaceExplorer {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    }
+}
+
+impl SpaceExplorer {
+    fn open_in_explorer(&self) {
+        if let Some(path) = SELECTED_PATH.lock().unwrap().as_ref() {
+            let parent = if path.is_file() {
+                path.parent().unwrap_or(path)
+            } else {
+                path
+            };
+            
+            if let Err(e) = opener::open(parent) {
+                MessageDialog::new()
+                    .set_title("Error")
+                    .set_text(&format!("Failed to open in explorer: {}", e))
+                    .set_type(MessageType::Error)
+                    .show_alert()
+                    .unwrap_or(());
+            }
+        }
     }
 }
 
