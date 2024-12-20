@@ -104,7 +104,9 @@ impl TreeMap {
 
     pub fn find_item_at(&self, position: Point) -> Option<&ItemRect> {
         self.rects.iter().find(|item| {
-            item.bounds.contains(position)
+            let bounds = item.bounds;
+            position.x >= bounds.x && position.x <= bounds.x + bounds.width &&
+            position.y >= bounds.y && position.y <= bounds.y + bounds.height
         })
     }
 
@@ -144,38 +146,32 @@ impl canvas::Program<crate::Message> for TreeMap {
         let mut frame = Frame::new(renderer, bounds.size());
         let selected = crate::SELECTED_PATH.lock().unwrap().clone();
 
+        // First draw all rectangles
         for item in &self.rects {
-            let rect = item.bounds;
-            if rect.width <= 0.0 || rect.height <= 0.0 {
-                continue;
-            }
+            let is_selected = selected.as_ref().map_or(false, |p| p == &item.entry.path);
 
             // Calculate base color based on size and type
-            let _intensity = ((item.entry.size as f32).log10() / 10.0).min(1.0).max(0.0);
+            let intensity = ((item.entry.size as f32).log10() / 10.0).min(1.0).max(0.0);
             let base_color = if item.entry.is_dir {
                 Color::from_rgb(0.2, 0.6, 0.6) // Teal for directories
             } else {
                 Color::from_rgb(0.7, 0.2, 0.2) // Red for files
             };
 
-            // Determine if this item is selected
-            let is_selected = selected.as_ref().map_or(false, |p| p == &item.entry.path);
-
-            // Apply selection effect
-            let fill_color = if is_selected {
-                Color::from_rgb(0.2, 0.4, 0.8) // Bright blue for selected items
+            let color = if is_selected {
+                Color::from_rgb(0.2, 0.4, 0.8) // Bright blue for selected
             } else {
                 base_color
             };
 
             // Draw rectangle
             frame.fill_rectangle(
-                Point::new(rect.x, rect.y),
-                Size::new(rect.width, rect.height),
-                fill_color,
+                Point::new(item.bounds.x, item.bounds.y),
+                Size::new(item.bounds.width, item.bounds.height),
+                color,
             );
 
-            // Draw border (thicker for selected items)
+            // Draw border using stroke
             let stroke = if is_selected {
                 Stroke {
                     width: 2.0,
@@ -185,34 +181,84 @@ impl canvas::Program<crate::Message> for TreeMap {
                     line_dash: canvas::LineDash::default(),
                 }
             } else {
-                Stroke::default()
+                Stroke {
+                    width: 1.0,
+                    style: canvas::Style::Solid(Color::from_rgb(0.3, 0.3, 0.3)),
+                    line_cap: canvas::LineCap::Butt,
+                    line_join: canvas::LineJoin::Miter,
+                    line_dash: canvas::LineDash::default(),
+                }
             };
 
-            frame.stroke(&Path::rectangle(
-                Point::new(rect.x, rect.y),
-                Size::new(rect.width, rect.height),
-            ), stroke);
+            frame.stroke(
+                &Path::rectangle(
+                    Point::new(item.bounds.x, item.bounds.y),
+                    Size::new(item.bounds.width, item.bounds.height),
+                ),
+                stroke,
+            );
+        }
 
-            // Draw label if rectangle is big enough
-            if rect.width > 60.0 && rect.height > 20.0 {
-                let name = item.entry.path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown");
-                
-                let size_text = format!("{} MB", 
-                    (item.entry.size / 1024 / 1024).separate_with_commas()
+        // Then draw tooltip if mouse is over any item
+        if let Some(cursor_position) = cursor.position() {
+            // Only show tooltip if cursor is within treemap bounds
+            if bounds.contains(cursor_position) {
+                // Convert cursor position to be relative to treemap bounds
+                let relative_position = Point::new(
+                    cursor_position.x - bounds.x,
+                    cursor_position.y - bounds.y
                 );
 
-                let type_indicator = if item.entry.is_dir { "📁" } else { "📄" };
-                let display_text = format!("{} {} ({})", type_indicator, name, size_text);
+                if let Some(item) = self.find_item_at(relative_position) {
+                    let name = item.entry.path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown");
+                    let size_text = format!("{} MB", 
+                        (item.entry.size / 1024 / 1024).separate_with_commas()
+                    );
+                    let type_text = if item.entry.is_dir { "Directory" } else { "File" };
 
-                frame.fill_text(canvas::Text {
-                    content: display_text,
-                    position: Point::new(rect.x + 5.0, rect.y + 15.0),
-                    color: if is_selected { Color::WHITE } else { Color::from_rgb(0.9, 0.9, 0.9) },
-                    size: 14.0,
-                    ..Default::default()
-                });
+                    // Draw tooltip background
+                    let tooltip_text = format!("{}\n{}\n{}", name, type_text, size_text);
+                    
+                    let padding = 5.0;
+                    let line_height = 16.0;
+                    let tooltip_height = line_height * 3.0 + padding * 2.0;
+                    let tooltip_width = 200.0;
+
+                    let mut tooltip_x = cursor_position.x + 10.0;
+                    let mut tooltip_y = cursor_position.y + 10.0;
+
+                    // Adjust position to keep tooltip within bounds
+                    if tooltip_x + tooltip_width > bounds.width + bounds.x {
+                        tooltip_x = cursor_position.x - tooltip_width - 10.0;
+                    }
+                    if tooltip_y + tooltip_height > bounds.height + bounds.y {
+                        tooltip_y = cursor_position.y - tooltip_height - 10.0;
+                    }
+
+                    // Draw tooltip background
+                    frame.fill_rectangle(
+                        Point::new(tooltip_x, tooltip_y),
+                        Size::new(tooltip_width, tooltip_height),
+                        Color::from_rgba(0.0, 0.0, 0.0, 0.8),
+                    );
+
+                    // Draw tooltip text
+                    let lines = tooltip_text.lines();
+                    for (i, line) in lines.enumerate() {
+                        frame.fill_text(canvas::Text {
+                            content: line.to_string(),
+                            position: Point::new(
+                                tooltip_x + padding,
+                                tooltip_y + padding + line_height * i as f32
+                            ),
+                            color: Color::WHITE,
+                            size: 14.0,
+                            ..canvas::Text::default()
+                        });
+                    }
+                }
             }
         }
 
@@ -244,18 +290,16 @@ impl canvas::Program<crate::Message> for TreeMap {
         cursor: mouse::Cursor,
     ) -> (canvas::event::Status, Option<crate::Message>) {
         match event {
-            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if let Some(position) = cursor.position() {
-                    if bounds.contains(position) {
-                        return (canvas::event::Status::Captured, None);
-                    }
-                }
-                (canvas::event::Status::Ignored, None)
-            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(position) = cursor.position() {
-                    if bounds.contains(position) {
-                        if let Some(item) = self.find_item_at(position) {
+                if let Some(cursor_position) = cursor.position() {
+                    if bounds.contains(cursor_position) {
+                        // Convert cursor position to be relative to treemap bounds
+                        let relative_position = Point::new(
+                            cursor_position.x - bounds.x,
+                            cursor_position.y - bounds.y
+                        );
+
+                        if let Some(item) = self.find_item_at(relative_position) {
                             println!("TreeMap: Selected item: {:?}", item.entry.path);
                             return (
                                 canvas::event::Status::Captured,
