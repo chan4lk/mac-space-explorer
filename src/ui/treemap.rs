@@ -41,6 +41,7 @@ impl TreeMap {
 
         let mut remaining_area = bounds;
         let mut remaining_entries = self.entries.clone();
+        remaining_entries.sort_by(|a, b| b.size.cmp(&a.size));
 
         while !remaining_entries.is_empty() && remaining_area.height > 0.0 && remaining_area.width > 0.0 {
             let remaining_size = remaining_entries.iter().map(|e| e.size).sum::<u64>() as f32;
@@ -138,7 +139,7 @@ impl canvas::Program<crate::Message> for TreeMap {
         renderer: &iced::Renderer,
         _theme: &iced::Theme,
         bounds: Rectangle,
-        _cursor: mouse::Cursor,
+        cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let selected = crate::SELECTED_PATH.lock().unwrap().clone();
@@ -149,26 +150,20 @@ impl canvas::Program<crate::Message> for TreeMap {
                 continue;
             }
 
-            // Calculate color based on size and type
-            let intensity = ((item.entry.size as f32).log10() / 10.0).min(1.0).max(0.0);
+            // Calculate base color based on size and type
+            let _intensity = ((item.entry.size as f32).log10() / 10.0).min(1.0).max(0.0);
             let base_color = if item.entry.is_dir {
-                Color::from_rgb(0.2, 0.4 + intensity * 0.6, 0.4 + intensity * 0.6)
+                Color::from_rgb(0.2, 0.6, 0.6) // Teal for directories
             } else {
-                Color::from_rgb(0.4 + intensity * 0.6, 0.2, 0.2)
+                Color::from_rgb(0.7, 0.2, 0.2) // Red for files
             };
 
-            // Highlight selected item
-            let color = if let Some(selected_path) = selected.as_ref() {
-                if selected_path == &item.entry.path {
-                    Color {
-                        r: base_color.r + 0.2,
-                        g: base_color.g + 0.2,
-                        b: base_color.b + 0.2,
-                        a: base_color.a,
-                    }
-                } else {
-                    base_color
-                }
+            // Determine if this item is selected
+            let is_selected = selected.as_ref().map_or(false, |p| p == &item.entry.path);
+
+            // Apply selection effect
+            let fill_color = if is_selected {
+                Color::from_rgb(0.2, 0.4, 0.8) // Bright blue for selected items
             } else {
                 base_color
             };
@@ -177,14 +172,26 @@ impl canvas::Program<crate::Message> for TreeMap {
             frame.fill_rectangle(
                 Point::new(rect.x, rect.y),
                 Size::new(rect.width, rect.height),
-                color,
+                fill_color,
             );
 
-            // Draw border
+            // Draw border (thicker for selected items)
+            let stroke = if is_selected {
+                Stroke {
+                    width: 2.0,
+                    style: canvas::Style::Solid(Color::WHITE),
+                    line_cap: canvas::LineCap::Butt,
+                    line_join: canvas::LineJoin::Miter,
+                    line_dash: canvas::LineDash::default(),
+                }
+            } else {
+                Stroke::default()
+            };
+
             frame.stroke(&Path::rectangle(
                 Point::new(rect.x, rect.y),
                 Size::new(rect.width, rect.height),
-            ), Stroke::default());
+            ), stroke);
 
             // Draw label if rectangle is big enough
             if rect.width > 60.0 && rect.height > 20.0 {
@@ -202,7 +209,7 @@ impl canvas::Program<crate::Message> for TreeMap {
                 frame.fill_text(canvas::Text {
                     content: display_text,
                     position: Point::new(rect.x + 5.0, rect.y + 15.0),
-                    color: Color::WHITE,
+                    color: if is_selected { Color::WHITE } else { Color::from_rgb(0.9, 0.9, 0.9) },
                     size: 14.0,
                     ..Default::default()
                 });
@@ -215,7 +222,7 @@ impl canvas::Program<crate::Message> for TreeMap {
     fn mouse_interaction(
         &self,
         _state: &Self::State,
-        bounds: Rectangle,
+        _bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
         if let Some(position) = cursor.position() {
@@ -231,9 +238,9 @@ impl canvas::Program<crate::Message> for TreeMap {
 
     fn update(
         &self,
-        state: &mut Self::State,
+        _state: &mut Self::State,
         event: Event,
-        bounds: Rectangle,
+        _bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> (canvas::event::Status, Option<crate::Message>) {
         match event {
@@ -243,6 +250,7 @@ impl canvas::Program<crate::Message> for TreeMap {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position() {
                     if let Some(item) = self.find_item_at(position) {
+                        println!("TreeMap: Selected item: {:?}", item.entry.path);
                         return (
                             canvas::event::Status::Captured,
                             Some(crate::Message::Select(Some(item.entry.path.clone())))

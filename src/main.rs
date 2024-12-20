@@ -134,19 +134,21 @@ impl Application for SpaceExplorer {
             Message::ScanProgress(_) => Command::none(),
             Message::ScanComplete(_) => Command::none(),
             Message::Select(path) => {
+                println!("Select message received with path: {:?}", path);
                 *SELECTED_PATH.lock().unwrap() = path;
                 Command::none()
             }
             Message::DrillDown => {
-                // Get the path and release the lock immediately
                 let path_to_drill = SELECTED_PATH.lock()
                     .unwrap()
-                    .take() // This removes the value and sets it to None
+                    .clone()
                     .filter(|p| p.is_dir());
 
                 if let Some(path) = path_to_drill {
-                    self.root_path = path;
+                    println!("Drilling down to: {:?}", path);
+                    self.root_path = path.clone();
                     self.treemap = TreeMap::new(self.root_path.clone());
+                    *SELECTED_PATH.lock().unwrap() = Some(path.clone()); // Maintain selection when drilling down
                     return Command::perform(async {}, |_| Message::Scan);
                 }
                 Command::none()
@@ -158,6 +160,7 @@ impl Application for SpaceExplorer {
                 if let Some(parent) = self.root_path.parent() {
                     // Only drill up if we're not at the initial root path
                     if self.root_path != self.initial_root_path {
+                        println!("Drilling up to: {:?}", parent);
                         self.root_path = parent.to_path_buf();
                         self.treemap = TreeMap::new(self.root_path.clone());
                         return Command::perform(async {}, |_| Message::Scan);
