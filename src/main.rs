@@ -117,6 +117,7 @@ impl Application for SpaceExplorer {
                         .collect();
                     all_files.sort_by(|a, b| b.size.cmp(&a.size));
                     self.largest_files = all_files.into_iter().take(10).collect();
+                    println!("Found {} largest files", self.largest_files.len());
                     
                     self.treemap = TreeMap::new(self.root_path.clone());
                     self.treemap.entries = entries;
@@ -148,7 +149,6 @@ impl Application for SpaceExplorer {
                     println!("Drilling down to: {:?}", path);
                     self.root_path = path.clone();
                     self.treemap = TreeMap::new(self.root_path.clone());
-                    *SELECTED_PATH.lock().unwrap() = Some(path.clone()); // Maintain selection when drilling down
                     return Command::perform(async {}, |_| Message::Scan);
                 }
                 Command::none()
@@ -294,17 +294,23 @@ impl Application for SpaceExplorer {
                                 ))
                                 .size(14),
                             ]
-                            .spacing(5);
+                            .spacing(5)
+                            .width(Length::Fill);
+
+                            let container = container(row)
+                                .width(Length::Fill)
+                                .padding(5);
 
                             if is_selected {
-                                container(row).style(theme::Container::Custom(Box::new(SelectedStyle))).into()
+                                container.style(theme::Container::Custom(Box::new(SelectedStyle))).into()
                             } else {
-                                container(row).into()
+                                container.into()
                             }
                         })
                         .collect(),
                 )
                 .spacing(5)
+                .width(Length::Fill)
                 .into();
 
                 container(
@@ -313,6 +319,7 @@ impl Application for SpaceExplorer {
                         items,
                     ]
                     .spacing(10)
+                    .width(Length::Fill)
                 )
                 .width(Length::Fixed(300.0))
                 .padding(10)

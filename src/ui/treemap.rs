@@ -222,11 +222,11 @@ impl canvas::Program<crate::Message> for TreeMap {
     fn mouse_interaction(
         &self,
         _state: &Self::State,
-        _bounds: Rectangle,
+        bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
         if let Some(position) = cursor.position() {
-            if self.find_item_at(position).is_some() {
+            if bounds.contains(position) && self.find_item_at(position).is_some() {
                 mouse::Interaction::Pointer
             } else {
                 mouse::Interaction::default()
@@ -240,21 +240,28 @@ impl canvas::Program<crate::Message> for TreeMap {
         &self,
         _state: &mut Self::State,
         event: Event,
-        _bounds: Rectangle,
+        bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> (canvas::event::Status, Option<crate::Message>) {
         match event {
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                (canvas::event::Status::Captured, None)
+                if let Some(position) = cursor.position() {
+                    if bounds.contains(position) {
+                        return (canvas::event::Status::Captured, None);
+                    }
+                }
+                (canvas::event::Status::Ignored, None)
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position() {
-                    if let Some(item) = self.find_item_at(position) {
-                        println!("TreeMap: Selected item: {:?}", item.entry.path);
-                        return (
-                            canvas::event::Status::Captured,
-                            Some(crate::Message::Select(Some(item.entry.path.clone())))
-                        );
+                    if bounds.contains(position) {
+                        if let Some(item) = self.find_item_at(position) {
+                            println!("TreeMap: Selected item: {:?}", item.entry.path);
+                            return (
+                                canvas::event::Status::Captured,
+                                Some(crate::Message::Select(Some(item.entry.path.clone())))
+                            );
+                        }
                     }
                 }
                 (canvas::event::Status::Ignored, None)
