@@ -133,9 +133,9 @@ impl canvas::Program<crate::Message> for TreeMap {
             // Calculate color based on size and type
             let intensity = (item.entry.size as f32).log10() / 10.0;
             let color = if item.entry.is_dir {
-                Color::from_rgb(0.3, intensity, intensity)
+                Color::from_rgb(0.2, 0.4 + intensity * 0.6, 0.4 + intensity * 0.6)  // Blue-green for folders
             } else {
-                Color::from_rgb(intensity, 0.3, 0.3)
+                Color::from_rgb(0.4 + intensity * 0.6, 0.2, 0.2)  // Red for files
             };
 
             // Highlight if under cursor
@@ -167,19 +167,14 @@ impl canvas::Program<crate::Message> for TreeMap {
                     (item.entry.size / 1024 / 1024).separate_with_commas()
                 );
 
+                let type_indicator = if item.entry.is_dir { "📁" } else { "📄" };
+                let display_text = format!("{} {} ({})", type_indicator, name, size_text);
+
                 frame.fill_text(canvas::Text {
-                    content: name.to_string(),
+                    content: display_text,
                     position: Point::new(rect.x + 5.0, rect.y + 15.0),
                     color: Color::WHITE,
                     size: 14.0,
-                    ..Default::default()
-                });
-
-                frame.fill_text(canvas::Text {
-                    content: size_text,
-                    position: Point::new(rect.x + 5.0, rect.y + 30.0),
-                    color: Color::WHITE,
-                    size: 12.0,
                     ..Default::default()
                 });
             }

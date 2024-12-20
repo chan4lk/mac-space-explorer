@@ -3,9 +3,9 @@ mod ui;
 
 use core::scanner::{FileEntry, ScanProgress, scan_directory};
 use iced::{
-    widget::{button, canvas, container, Column, progress_bar, text},
+    widget::{button, canvas, container, Column, progress_bar, text, Row},
     Application, Command, Element, Length, Rectangle, Settings, Theme, Subscription,
-    event, mouse, time,
+    event, mouse, time, Color, theme,
 };
 use iced::widget::canvas::Event;
 use humansize::{format_size, BINARY};
@@ -22,6 +22,7 @@ pub struct SpaceExplorer {
     selected_path: Option<PathBuf>,
     scan_progress: Option<ScanProgress>,
     scanning: bool,
+    largest_files: Vec<FileEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +60,7 @@ impl Application for SpaceExplorer {
                 selected_path: None,
                 scan_progress: None,
                 scanning: false,
+                largest_files: Vec::new(),
             },
             Command::none(),
         )
@@ -96,12 +98,21 @@ impl Application for SpaceExplorer {
                     self.scan_progress = Some(ScanProgress::default());
                     let mut progress = ScanProgress::default();
                     let entries = scan_directory(&self.root_path, &mut progress);
+                    
+                    // Find largest files
+                    let mut all_files: Vec<_> = entries.iter()
+                        .filter(|e| !e.is_dir)
+                        .cloned()
+                        .collect();
+                    all_files.sort_by(|a, b| b.size.cmp(&a.size));
+                    self.largest_files = all_files.into_iter().take(10).collect();
+                    
                     self.treemap.entries = entries;
                     self.treemap.update_layout(Rectangle {
                         x: 0.0,
                         y: 0.0,
-                        width: 800.0,  // Default width
-                        height: 600.0, // Default height
+                        width: 800.0,
+                        height: 600.0,
                     });
                     self.total_size = progress.total_size;
                     self.scanning = false;
@@ -196,21 +207,64 @@ impl Application for SpaceExplorer {
             Column::new().spacing(10)
         };
 
+        let legend = Row::new()
+            .push(text("📁 Folders").style(Color::from_rgb(0.2, 0.7, 0.7)))
+            .push(text(" | "))
+            .push(text("📄 Files").style(Color::from_rgb(0.7, 0.2, 0.2)))
+            .spacing(10);
+
         let treemap = canvas::Canvas::new(&self.treemap)
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let content = Column::new()
-            .push(controls)
-            .push(progress)
-            .push(text(format!(
-                "Total Size: {}",
-                format_size(self.total_size, BINARY)
-            )))
-            .push(treemap)
+        // Create the largest files panel
+        let largest_files_panel = if !self.largest_files.is_empty() {
+            let mut files_list = Column::new()
+                .push(text("Top 10 Largest Files").size(20))
+                .spacing(10);
+
+            for (index, file) in self.largest_files.iter().enumerate() {
+                let file_name = file.path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+                
+                let size_text = format_size(file.size, BINARY);
+                let file_text = format!("{}. {} ({})", index + 1, file_name, size_text);
+                
+                files_list = files_list.push(
+                    text(file_text)
+                        .size(14)
+                );
+            }
+
+            container(files_list)
+                .width(Length::Fixed(300.0))
+                .padding(10)
+                .style(theme::Container::Box)
+        } else {
+            container(Column::new())
+                .width(Length::Fixed(300.0))
+        };
+
+        // Main layout with side-by-side arrangement
+        let main_content = Row::new()
+            .push(
+                Column::new()
+                    .push(controls)
+                    .push(progress)
+                    .push(text(format!(
+                        "Total Size: {}",
+                        format_size(self.total_size, BINARY)
+                    )))
+                    .push(legend)
+                    .push(treemap)
+                    .spacing(20)
+                    .width(Length::Fill)
+            )
+            .push(largest_files_panel)
             .spacing(20);
 
-        container(content)
+        container(main_content)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(20)
