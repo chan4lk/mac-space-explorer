@@ -1530,6 +1530,7 @@ dependencies = [
  "dirs",
  "humansize",
  "iced",
+ "lazy_static",
  "native-dialog",
  "open",
  "serde",
