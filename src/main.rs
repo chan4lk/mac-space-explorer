@@ -110,14 +110,22 @@ impl Application for SpaceExplorer {
                     let mut progress = ScanProgress::default();
                     let entries = scan_directory(&self.root_path, &mut progress);
                     
-                    // Find largest files
+                    // Find largest files (only regular files, not directories)
                     let mut all_files: Vec<_> = entries.iter()
                         .filter(|e| !e.is_dir)
                         .cloned()
                         .collect();
                     all_files.sort_by(|a, b| b.size.cmp(&a.size));
                     self.largest_files = all_files.into_iter().take(10).collect();
-                    println!("Found {} largest files", self.largest_files.len());
+                    println!("Found {} largest files in {}", self.largest_files.len(), self.root_path.display());
+                    
+                    for (i, file) in self.largest_files.iter().enumerate() {
+                        println!("{}. {} ({} MB)", 
+                            i + 1,
+                            file.path.display(),
+                            file.size / 1024 / 1024
+                        );
+                    }
                     
                     self.treemap = TreeMap::new(self.root_path.clone());
                     self.treemap.entries = entries;
@@ -277,58 +285,81 @@ impl Application for SpaceExplorer {
                 .height(Length::Fill);
 
             // Create the largest files panel
-            let largest_files_panel = if !self.largest_files.is_empty() {
-                let selected = SELECTED_PATH.lock().unwrap().clone();
-                let items: Element<_> = column(
-                    self.largest_files
-                        .iter()
-                        .enumerate()
-                        .map(|(i, entry)| {
-                            let is_selected = selected.as_ref().map_or(false, |p| p == &entry.path);
-                            let row = row![
-                                text(format!("{}. ", i + 1)).size(14),
-                                text(entry.path.file_name().unwrap_or_default().to_string_lossy()).size(14),
-                                text(format!(
-                                    "{} MB",
-                                    (entry.size / 1024 / 1024).separate_with_commas()
-                                ))
-                                .size(14),
-                            ]
-                            .spacing(5)
-                            .width(Length::Fill);
-
-                            let container = container(row)
+            let largest_files_panel = {
+                let mut files_list = self.largest_files.clone();
+                files_list.sort_by(|a, b| b.size.cmp(&a.size));
+                
+                if !files_list.is_empty() {
+                    let selected = SELECTED_PATH.lock().unwrap().clone();
+                    let items: Element<_> = column(
+                        files_list
+                            .iter()
+                            .enumerate()
+                            .map(|(i, entry)| {
+                                let is_selected = selected.as_ref().map_or(false, |p| p == &entry.path);
+                                let name = entry.path.file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .into_owned();
+                                
+                                let row = row![
+                                    text(format!("{}. ", i + 1))
+                                        .size(14)
+                                        .width(Length::Fixed(30.0)),
+                                    text(&name)
+                                        .size(14)
+                                        .width(Length::Fill),
+                                    text(format!(
+                                        "{} MB",
+                                        (entry.size / 1024 / 1024).separate_with_commas()
+                                    ))
+                                    .size(14)
+                                    .width(Length::Fixed(100.0)),
+                                ]
+                                .spacing(5)
                                 .width(Length::Fill)
-                                .padding(5);
+                                .align_items(iced::Alignment::Center);
 
-                            if is_selected {
-                                container.style(theme::Container::Custom(Box::new(SelectedStyle))).into()
-                            } else {
-                                container.into()
-                            }
-                        })
-                        .collect(),
-                )
-                .spacing(5)
-                .width(Length::Fill)
-                .into();
-
-                container(
-                    column![
-                        text("Largest Files").size(20),
-                        items,
-                    ]
-                    .spacing(10)
+                                if is_selected {
+                                    container(row)
+                                        .style(theme::Container::Custom(Box::new(SelectedStyle)))
+                                        .padding(5)
+                                        .width(Length::Fill)
+                                        .into()
+                                } else {
+                                    container(row)
+                                        .padding(5)
+                                        .width(Length::Fill)
+                                        .into()
+                                }
+                            })
+                            .collect(),
+                    )
+                    .spacing(2)
                     .width(Length::Fill)
-                )
-                .width(Length::Fixed(300.0))
-                .padding(10)
-                .style(theme::Container::Box)
-            } else {
-                container(text("No files scanned yet"))
-                    .width(Length::Fixed(300.0))
+                    .into();
+
+                    container(
+                        column![
+                            text("Largest Files").size(20),
+                            items,
+                        ]
+                        .spacing(10)
+                        .width(Length::Fill)
+                    )
+                    .width(Length::Fixed(400.0))
                     .padding(10)
                     .style(theme::Container::Box)
+                } else {
+                    container(
+                        text("No files found")
+                            .size(16)
+                            .style(Color::from_rgb(0.7, 0.7, 0.7))
+                    )
+                    .width(Length::Fixed(400.0))
+                    .padding(10)
+                    .style(theme::Container::Box)
+                }
             };
 
             row![
@@ -341,9 +372,11 @@ impl Application for SpaceExplorer {
                     treemap,
                 ]
                 .spacing(20)
-                .padding(20),
+                .padding(20)
+                .width(Length::Fill),
                 largest_files_panel,
             ]
+            .width(Length::Fill)
             .into()
         };
 
