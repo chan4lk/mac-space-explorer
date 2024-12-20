@@ -21,12 +21,10 @@ jobs:
 
       - name: Build Release
         run: |
-          cd mac-space-explorer
           cargo build --release
 
       - name: Create DMG
         run: |
-          cd mac-space-explorer
           mkdir -p target/dmg
           cp target/release/mac-space-explorer target/dmg/
           create-dmg \
@@ -50,6 +48,6 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            mac-space-explorer/target/Mac Space Explorer.dmg
+            target/Mac Space Explorer.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
